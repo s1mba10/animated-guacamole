@@ -21,7 +21,7 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useReminders, useMedications, useCourses } from '../../hooks';
-import { reminderNotification } from '../../utils/notifications';
+import NotificationManager from '../../services/NotificationManager';
 
 import { styles } from './styles';
 import { AddReminderScreenNavigationProp, AddReminderScreenRouteProp, typeIcons } from './types';
@@ -351,19 +351,25 @@ const ReminderAdd: React.FC = () => {
         await AsyncStorage.setItem('reminders', JSON.stringify(allReminders));
         console.log('Successfully saved all reminders to storage');
 
-        newReminders.forEach((reminder) => {
+        // Schedule notifications using the new NotificationManager
+        for (const reminder of newReminders) {
           const [hour, minute] = reminder.time.split(':').map(Number);
           const notificationDate = new Date(reminder.date);
           notificationDate.setHours(hour, minute, 0, 0);
 
           if (notificationDate > new Date()) {
-            reminderNotification({
-              title: `Напоминание: ${reminder.name}`,
-              body: `Примите ${reminder.dosage}`,
-              date: notificationDate,
-            });
+            try {
+              await NotificationManager.scheduleNotification({
+                reminderId: reminder.id,
+                title: `Напоминание: ${reminder.name}`,
+                body: `Примите ${reminder.dosage}`,
+                date: notificationDate,
+              });
+            } catch (notifError) {
+              console.error(`Failed to schedule notification for reminder ${reminder.id}:`, notifError);
+            }
           }
-        });
+        }
       } catch (storageError) {
         console.error('Failed to update reminders in storage:', storageError);
         Alert.alert(
