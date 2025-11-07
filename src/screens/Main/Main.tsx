@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert, Image } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   format,
@@ -25,6 +25,7 @@ import { Reminder } from '../../types';
 import { getWeekDates } from './utils';
 import { statusColors, typeIcons } from './constants';
 import { useCountdown, useCourses } from '../../hooks';
+import NotificationManager from '../../services/NotificationManager';
 
 const applyStatusRules = (items: Reminder[]): Reminder[] => {
   const now = Date.now();
@@ -196,6 +197,9 @@ const Main: React.FC = () => {
 
           await AsyncStorage.setItem('reminders', JSON.stringify(updatedReminders));
 
+          // Cancel the notification for this reminder (including repeat notifications)
+          await NotificationManager.cancelNotification(id);
+
           if (reminder?.courseId) {
             const exists = updatedReminders.some(r => r.courseId === reminder.courseId);
             if (!exists) {
@@ -212,16 +216,20 @@ const Main: React.FC = () => {
   ]);
 };
 
-  const markAsMissed = (id: string) => {
+  const markAsMissed = async (id: string) => {
     setReminders(prev =>
       prev.map(r => (r.id === id ? { ...r, status: 'missed' } : r)),
     );
+    // Cancel notifications when marked as missed
+    await NotificationManager.cancelNotification(id);
   };
 
-  const markAsTaken = (item: Reminder) => {
+  const markAsTaken = async (item: Reminder) => {
     setReminders(prev =>
       prev.map(r => (r.id === item.id ? { ...r, status: 'taken' } : r)),
     );
+    // Cancel notifications when marked as taken
+    await NotificationManager.cancelNotification(item.id);
   };
 
   // Close other open swipeable rows
@@ -393,7 +401,11 @@ const Main: React.FC = () => {
           renderItem={({ item }) => <ReminderCard item={item} />}
           ListEmptyComponent={() => (
             <View style={styles.emptyListContainer}>
-              <Icon name="pill-off" size={60} color="#444" />
+              <Image
+                source={require('../../../assets/heart_pill.png')}
+                style={styles.emptyListImage}
+                resizeMode="contain"
+              />
               <Text style={styles.emptyListText}>Нет напоминаний на этот день</Text>
               <Text style={styles.emptyListSubText}>Нажмите на + чтобы добавить</Text>
             </View>

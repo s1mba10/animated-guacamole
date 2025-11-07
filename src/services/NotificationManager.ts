@@ -67,7 +67,11 @@ class NotificationManager {
           importance: AndroidImportance.HIGH,
           sound: 'default',
           vibration: true,
-          vibrationPattern: [300, 500],
+          vibrationPattern: [300, 500, 300, 500],
+          lights: true,
+          lightColor: '#4A90E2',
+          badge: true,
+          bypassDnd: true, // Bypass Do Not Disturb for medication reminders
         });
       }
 
@@ -97,6 +101,82 @@ class NotificationManager {
   }
 
   /**
+   * Schedule repeat notifications to ensure user doesn't miss it
+   */
+  private async scheduleRepeatNotifications(
+    schedule: NotificationSchedule,
+    originalTime: Date
+  ): Promise<void> {
+    // Schedule 3 follow-up notifications at 5, 10, and 15 minutes after the original
+    const repeatIntervals = [5, 10, 15];
+
+    for (const intervalMinutes of repeatIntervals) {
+      const repeatTime = new Date(originalTime.getTime() + intervalMinutes * 60 * 1000);
+
+      // Only schedule if it's still in the future
+      if (repeatTime.getTime() <= Date.now()) {
+        continue;
+      }
+
+      const repeatId = `${schedule.reminderId}_repeat_${intervalMinutes}`;
+
+      try {
+        const trigger: TimestampTrigger = {
+          type: TriggerType.TIMESTAMP,
+          timestamp: repeatTime.getTime(),
+          alarmManager: Platform.OS === 'android' ? {
+            allowWhileIdle: true,
+          } : undefined,
+        };
+
+        await notifee.createTriggerNotification(
+          {
+            id: repeatId,
+            title: `⏰ ${schedule.title}`,
+            body: `Напоминание: ${schedule.body}`,
+            android: {
+              channelId: CHANNEL_ID,
+              importance: AndroidImportance.HIGH,
+              pressAction: {
+                id: 'default',
+                launchActivity: 'default',
+              },
+              autoCancel: false,
+              sound: 'default',
+              vibrationPattern: [500, 1000, 500, 1000],
+              smallIcon: 'ic_launcher',
+              color: '#FF6B6B',
+              tag: schedule.reminderId, // Group with original notification
+            },
+            ios: {
+              sound: 'default',
+              categoryId: 'medication-reminder',
+            },
+            data: {
+              reminderId: schedule.reminderId,
+              isRepeat: 'true',
+              repeatInterval: intervalMinutes.toString(),
+              ...schedule.data,
+            },
+          },
+          trigger
+        );
+
+        // Save repeat notification
+        await this.saveScheduledNotification({
+          reminderId: repeatId,
+          notificationId: repeatId,
+          scheduledTime: repeatTime.getTime(),
+        });
+
+        console.log(`Scheduled repeat notification ${repeatId} for ${intervalMinutes} minutes after original`);
+      } catch (error) {
+        console.error(`Failed to schedule repeat notification at ${intervalMinutes} minutes:`, error);
+      }
+    }
+  }
+
+  /**
    * Schedule a notification for medication reminder
    */
   public async scheduleNotification(
@@ -122,6 +202,7 @@ class NotificationManager {
         alarmManager: Platform.OS === 'android' ? {
           allowWhileIdle: true,
         } : undefined,
+        repeatFrequency: RepeatFrequency.NONE,
       };
 
       // Create notification with actions
@@ -138,13 +219,21 @@ class NotificationManager {
               launchActivity: 'default',
             },
             actions: this.createNotificationActions(),
-            autoCancel: true,
+            autoCancel: false, // Don't dismiss automatically so user must acknowledge
             sound: 'default',
-            vibrationPattern: [300, 500],
+            vibrationPattern: [300, 500, 300, 500],
             smallIcon: 'ic_launcher',
             color: '#4A90E2',
             showTimestamp: true,
             timestamp: schedule.date.getTime(),
+            fullScreenAction: {
+              id: 'default',
+              launchActivity: 'default',
+            },
+            showChronometer: false,
+            ongoing: false,
+            onlyAlertOnce: false, // Keep alerting
+            timeoutAfter: 15 * 60 * 1000, // Auto-dismiss after 15 minutes
           },
           ios: {
             sound: 'default',
@@ -165,6 +254,9 @@ class NotificationManager {
         scheduledTime: schedule.date.getTime(),
       });
 
+      // Schedule repeat notifications to ensure the user doesn't miss it
+      await this.scheduleRepeatNotifications(schedule, schedule.date);
+
       console.log(`Scheduled notification ${notificationId} for reminder ${schedule.reminderId}`);
       return notificationId;
     } catch (error) {
@@ -183,13 +275,26 @@ class NotificationManager {
       const notification = scheduled.find(n => n.reminderId === reminderId);
 
       if (notification) {
-        // Cancel the notification
+        // Cancel the main notification
         await notifee.cancelNotification(notification.notificationId);
 
         // Remove from storage
         await this.removeScheduledNotification(reminderId);
 
         console.log(`Cancelled notification for reminder ${reminderId}`);
+      }
+
+      // Also cancel all repeat notifications for this reminder
+      const repeatIntervals = [5, 10, 15];
+      for (const interval of repeatIntervals) {
+        const repeatId = `${reminderId}_repeat_${interval}`;
+        try {
+          await notifee.cancelNotification(repeatId);
+          await this.removeScheduledNotification(repeatId);
+          console.log(`Cancelled repeat notification ${repeatId}`);
+        } catch (error) {
+          // Ignore errors for repeat notifications that might not exist
+        }
       }
     } catch (error) {
       console.error('Failed to cancel notification:', error);
@@ -207,7 +312,10 @@ class NotificationManager {
         .map(n => n.notificationId);
 
       if (notificationIds.length > 0) {
-        await notifee.cancelNotifications(notificationIds);
+        // Cancel each notification individually
+        for (const notificationId of notificationIds) {
+          await notifee.cancelNotification(notificationId);
+        }
 
         // Remove from storage
         const remaining = scheduled.filter(
@@ -427,7 +535,19 @@ class NotificationManager {
       // Remove from scheduled notifications
       await this.removeScheduledNotification(reminderId);
 
-      console.log(`Marked reminder ${reminderId} as taken`);
+      // Cancel all repeat notifications for this reminder
+      const repeatIntervals = [5, 10, 15];
+      for (const interval of repeatIntervals) {
+        const repeatId = `${reminderId}_repeat_${interval}`;
+        try {
+          await notifee.cancelNotification(repeatId);
+          await this.removeScheduledNotification(repeatId);
+        } catch (error) {
+          // Ignore errors
+        }
+      }
+
+      console.log(`Marked reminder ${reminderId} as taken and cancelled repeat notifications`);
     } catch (error) {
       console.error('Failed to handle take action:', error);
     }
@@ -471,7 +591,19 @@ class NotificationManager {
       // Remove from scheduled notifications
       await this.removeScheduledNotification(reminderId);
 
-      console.log(`Marked reminder ${reminderId} as skipped`);
+      // Cancel all repeat notifications for this reminder
+      const repeatIntervals = [5, 10, 15];
+      for (const interval of repeatIntervals) {
+        const repeatId = `${reminderId}_repeat_${interval}`;
+        try {
+          await notifee.cancelNotification(repeatId);
+          await this.removeScheduledNotification(repeatId);
+        } catch (error) {
+          // Ignore errors
+        }
+      }
+
+      console.log(`Marked reminder ${reminderId} as skipped and cancelled repeat notifications`);
     } catch (error) {
       console.error('Failed to handle skip action:', error);
     }

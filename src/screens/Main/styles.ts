@@ -174,6 +174,10 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 50,
   },
+  emptyListImage: {
+    width: 120,
+    height: 120,
+  },
   emptyListText: {
     color: '#AAA',
     fontSize: 18,
