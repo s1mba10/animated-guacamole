@@ -18,6 +18,9 @@ export type Reminder = {
   status: ReminderStatus;
   date: string; // YYYY-MM-DD format
   courseId?: number;
+  snoozeCount?: number; // Track how many times this reminder was snoozed (max 3)
+  originalTime?: string; // Store original time if snoozed (format: HH:mm)
+  originalDate?: string; // Store original date if snoozed (format: YYYY-MM-DD)
 };
 
 export interface Medication {

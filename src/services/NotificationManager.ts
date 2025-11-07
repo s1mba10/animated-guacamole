@@ -109,6 +109,7 @@ class NotificationManager {
   ): Promise<void> {
     // Schedule 3 follow-up notifications at 5, 10, and 15 minutes after the original
     const repeatIntervals = [5, 10, 15];
+    const snoozeCount = (schedule.data?.snoozeCount as number) || 0;
 
     for (const intervalMinutes of repeatIntervals) {
       const repeatTime = new Date(originalTime.getTime() + intervalMinutes * 60 * 1000);
@@ -141,6 +142,7 @@ class NotificationManager {
                 id: 'default',
                 launchActivity: 'default',
               },
+              actions: this.createNotificationActions(snoozeCount),
               autoCancel: false,
               sound: 'default',
               vibrationPattern: [500, 1000, 500, 1000],
@@ -156,6 +158,7 @@ class NotificationManager {
               reminderId: schedule.reminderId,
               isRepeat: 'true',
               repeatInterval: intervalMinutes.toString(),
+              snoozeCount: snoozeCount,
               ...schedule.data,
             },
           },
@@ -205,6 +208,9 @@ class NotificationManager {
         repeatFrequency: RepeatFrequency.NONE,
       };
 
+      // Get snoozeCount from data if available
+      const snoozeCount = (schedule.data?.snoozeCount as number) || 0;
+
       // Create notification with actions
       const notificationId = await notifee.createTriggerNotification(
         {
@@ -218,7 +224,7 @@ class NotificationManager {
               id: 'default',
               launchActivity: 'default',
             },
-            actions: this.createNotificationActions(),
+            actions: this.createNotificationActions(snoozeCount),
             autoCancel: false, // Don't dismiss automatically so user must acknowledge
             sound: 'default',
             vibrationPattern: [300, 500, 300, 500],
@@ -241,6 +247,7 @@ class NotificationManager {
           },
           data: {
             reminderId: schedule.reminderId,
+            snoozeCount: snoozeCount,
             ...schedule.data,
           },
         },
@@ -398,6 +405,9 @@ class NotificationManager {
             title: `Напоминание: ${reminder.name}`,
             body: `Примите ${reminder.dosage}`,
             date: notificationDate,
+            data: {
+              snoozeCount: (reminder as any).snoozeCount || 0,
+            },
           });
           restoredCount++;
         }
@@ -443,24 +453,31 @@ class NotificationManager {
 
   // Private helper methods
 
-  private createNotificationActions(): AndroidAction[] {
-    return [
+  private createNotificationActions(snoozeCount: number = 0): AndroidAction[] {
+    const actions: AndroidAction[] = [
       {
         title: 'Принял',
         pressAction: { id: 'take' },
         icon: 'https://my-cdn.com/icons/check.png',
       },
-      {
+    ];
+
+    // Only show snooze button if not snoozed 3 times already
+    if (snoozeCount < 3) {
+      actions.push({
         title: 'Отложить (15 мин)',
         pressAction: { id: 'snooze' },
         icon: 'https://my-cdn.com/icons/snooze.png',
-      },
-      {
-        title: 'Пропустить',
-        pressAction: { id: 'skip' },
-        icon: 'https://my-cdn.com/icons/close.png',
-      },
-    ];
+      });
+    }
+
+    actions.push({
+      title: 'Пропустить',
+      pressAction: { id: 'skip' },
+      icon: 'https://my-cdn.com/icons/close.png',
+    });
+
+    return actions;
   }
 
   private setupEventHandlers(): void {
@@ -556,21 +573,69 @@ class NotificationManager {
   private async handleSnoozeAction(notification: any): Promise<void> {
     try {
       const reminderId = notification.data?.reminderId as string;
-      const snoozeTime = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-      // Cancel current notification
+      // Load current reminders from storage
+      const stored = await AsyncStorage.getItem('reminders');
+      if (!stored) {
+        console.error('No reminders found in storage');
+        return;
+      }
+
+      const reminders = JSON.parse(stored);
+      const reminderIndex = reminders.findIndex((r: any) => r.id === reminderId);
+
+      if (reminderIndex === -1) {
+        console.error(`Reminder ${reminderId} not found in storage`);
+        return;
+      }
+
+      const reminder = reminders[reminderIndex];
+
+      // Check if already snoozed 3 times
+      const currentSnoozeCount = reminder.snoozeCount || 0;
+      if (currentSnoozeCount >= 3) {
+        console.log(`Reminder ${reminderId} has reached maximum snooze count`);
+        return;
+      }
+
+      // Calculate new time (15 minutes from now)
+      const snoozeTime = new Date(Date.now() + 15 * 60 * 1000);
+      const newTime = `${snoozeTime.getHours().toString().padStart(2, '0')}:${snoozeTime.getMinutes().toString().padStart(2, '0')}`;
+      const newDate = `${snoozeTime.getFullYear()}-${(snoozeTime.getMonth() + 1).toString().padStart(2, '0')}-${snoozeTime.getDate().toString().padStart(2, '0')}`;
+
+      // Store original time/date on first snooze
+      if (currentSnoozeCount === 0) {
+        reminder.originalTime = reminder.time;
+        reminder.originalDate = reminder.date;
+      }
+
+      // Update reminder with new time and increment snooze count
+      reminder.time = newTime;
+      reminder.date = newDate;
+      reminder.snoozeCount = currentSnoozeCount + 1;
+
+      // Update reminders array
+      reminders[reminderIndex] = reminder;
+
+      // Save updated reminders to storage
+      await AsyncStorage.setItem('reminders', JSON.stringify(reminders));
+
+      // Cancel current notification and all repeat notifications
       await this.cancelNotification(reminderId);
 
-      // Schedule new notification
+      // Schedule new notification at the new time
       await this.scheduleNotification({
-        reminderId: `${reminderId}_snooze`,
+        reminderId: reminderId,
         title: notification.title || 'Напоминание',
         body: notification.body || 'Время принять лекарство',
         date: snoozeTime,
-        data: notification.data,
+        data: {
+          ...notification.data,
+          snoozeCount: reminder.snoozeCount,
+        },
       });
 
-      console.log(`Snoozed reminder ${reminderId} for 15 minutes`);
+      console.log(`Snoozed reminder ${reminderId} to ${newTime} (${reminder.snoozeCount}/3)`);
     } catch (error) {
       console.error('Failed to handle snooze action:', error);
     }
