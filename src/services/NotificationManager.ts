@@ -10,6 +10,11 @@ import notifee, {
 } from '@notifee/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import {
+  handleTakeAction,
+  handleSnoozeAction,
+  handleSkipAction,
+} from './notificationHandlers';
 
 export interface NotificationSchedule {
   reminderId: string;
@@ -478,35 +483,8 @@ class NotificationManager {
   }
 
   private setupEventHandlers(): void {
-    // Handle notification actions (take, snooze, skip)
-    notifee.onBackgroundEvent(async ({ type, detail }) => {
-      const { notification, pressAction } = detail;
-
-      if (!notification || !pressAction) {
-        return;
-      }
-
-      const reminderId = notification.data?.reminderId as string;
-
-      switch (pressAction.id) {
-        case 'take':
-          // Update reminder status to 'taken'
-          await this.handleTakeAction(reminderId);
-          break;
-
-        case 'snooze':
-          // Reschedule notification for 15 minutes later
-          await this.handleSnoozeAction(notification);
-          break;
-
-        case 'skip':
-          // Update reminder status to 'missed'
-          await this.handleSkipAction(reminderId);
-          break;
-      }
-    });
-
     // Handle foreground notification events
+    // Note: Background events are now handled in index.js for headless support
     notifee.onForegroundEvent(async ({ type, detail }) => {
       if (type === EventType.ACTION_PRESS) {
         const { notification, pressAction } = detail;
@@ -517,167 +495,37 @@ class NotificationManager {
 
         const reminderId = notification.data?.reminderId as string;
 
+        if (!reminderId) {
+          console.warn('No reminderId found in notification data');
+          return;
+        }
+
+        console.log(`Foreground event: action=${pressAction.id}, reminderId=${reminderId}`);
+
+        // Use standalone handlers for consistency
         switch (pressAction.id) {
           case 'take':
-            await this.handleTakeAction(reminderId);
+            await handleTakeAction(reminderId);
+            // Cancel the notification
+            await notifee.cancelNotification(notification.id || '');
             break;
 
           case 'snooze':
-            await this.handleSnoozeAction(notification);
+            await handleSnoozeAction(notification);
+            // Cancel the current notification
+            await notifee.cancelNotification(notification.id || '');
             break;
 
           case 'skip':
-            await this.handleSkipAction(reminderId);
+            await handleSkipAction(reminderId);
+            // Cancel the notification
+            await notifee.cancelNotification(notification.id || '');
             break;
         }
       }
     });
   }
 
-  private async handleTakeAction(reminderId: string): Promise<void> {
-    try {
-      // Get current reminders
-      const stored = await AsyncStorage.getItem('reminders');
-      if (stored) {
-        const reminders = JSON.parse(stored);
-        const updated = reminders.map((r: any) =>
-          r.id === reminderId ? { ...r, status: 'taken' } : r
-        );
-        await AsyncStorage.setItem('reminders', JSON.stringify(updated));
-        console.log(`Updated reminder ${reminderId} status to 'taken' in storage`);
-      }
-
-      // Remove from scheduled notifications
-      await this.removeScheduledNotification(reminderId);
-
-      // Cancel all repeat notifications for this reminder
-      const repeatIntervals = [5, 10, 15];
-      const cancelPromises = repeatIntervals.map(async (interval) => {
-        const repeatId = `${reminderId}_repeat_${interval}`;
-        try {
-          await notifee.cancelNotification(repeatId);
-          await this.removeScheduledNotification(repeatId);
-        } catch (error) {
-          console.error(`Failed to cancel repeat notification ${repeatId}:`, error);
-        }
-      });
-
-      // Wait for all cancel operations to complete
-      await Promise.all(cancelPromises);
-
-      console.log(`Marked reminder ${reminderId} as taken and cancelled repeat notifications`);
-    } catch (error) {
-      console.error('Failed to handle take action:', error);
-    }
-  }
-
-  private async handleSnoozeAction(notification: any): Promise<void> {
-    try {
-      const reminderId = notification.data?.reminderId as string;
-
-      // Load current reminders from storage
-      const stored = await AsyncStorage.getItem('reminders');
-      if (!stored) {
-        console.error('No reminders found in storage');
-        return;
-      }
-
-      const reminders = JSON.parse(stored);
-      const reminderIndex = reminders.findIndex((r: any) => r.id === reminderId);
-
-      if (reminderIndex === -1) {
-        console.error(`Reminder ${reminderId} not found in storage`);
-        return;
-      }
-
-      const reminder = reminders[reminderIndex];
-
-      // Check if already snoozed 3 times
-      const currentSnoozeCount = reminder.snoozeCount || 0;
-      if (currentSnoozeCount >= 3) {
-        console.log(`Reminder ${reminderId} has reached maximum snooze count`);
-        return;
-      }
-
-      // Calculate new time (15 minutes from now)
-      const snoozeTime = new Date(Date.now() + 15 * 60 * 1000);
-      const newTime = `${snoozeTime.getHours().toString().padStart(2, '0')}:${snoozeTime.getMinutes().toString().padStart(2, '0')}`;
-      const newDate = `${snoozeTime.getFullYear()}-${(snoozeTime.getMonth() + 1).toString().padStart(2, '0')}-${snoozeTime.getDate().toString().padStart(2, '0')}`;
-
-      // Store original time/date on first snooze
-      if (currentSnoozeCount === 0) {
-        reminder.originalTime = reminder.time;
-        reminder.originalDate = reminder.date;
-      }
-
-      // Update reminder with new time and increment snooze count
-      reminder.time = newTime;
-      reminder.date = newDate;
-      reminder.snoozeCount = currentSnoozeCount + 1;
-
-      // Update reminders array
-      reminders[reminderIndex] = reminder;
-
-      // Save updated reminders to storage
-      await AsyncStorage.setItem('reminders', JSON.stringify(reminders));
-
-      // Cancel current notification and all repeat notifications
-      await this.cancelNotification(reminderId);
-
-      // Schedule new notification at the new time
-      await this.scheduleNotification({
-        reminderId: reminderId,
-        title: notification.title || 'Напоминание',
-        body: notification.body || 'Время принять лекарство',
-        date: snoozeTime,
-        data: {
-          ...notification.data,
-          snoozeCount: reminder.snoozeCount,
-        },
-      });
-
-      console.log(`Snoozed reminder ${reminderId} to ${newTime} (${reminder.snoozeCount}/3)`);
-    } catch (error) {
-      console.error('Failed to handle snooze action:', error);
-    }
-  }
-
-  private async handleSkipAction(reminderId: string): Promise<void> {
-    try {
-      // Get current reminders
-      const stored = await AsyncStorage.getItem('reminders');
-      if (stored) {
-        const reminders = JSON.parse(stored);
-        const updated = reminders.map((r: any) =>
-          r.id === reminderId ? { ...r, status: 'missed' } : r
-        );
-        await AsyncStorage.setItem('reminders', JSON.stringify(updated));
-        console.log(`Updated reminder ${reminderId} status to 'missed' in storage`);
-      }
-
-      // Remove from scheduled notifications
-      await this.removeScheduledNotification(reminderId);
-
-      // Cancel all repeat notifications for this reminder
-      const repeatIntervals = [5, 10, 15];
-      const cancelPromises = repeatIntervals.map(async (interval) => {
-        const repeatId = `${reminderId}_repeat_${interval}`;
-        try {
-          await notifee.cancelNotification(repeatId);
-          await this.removeScheduledNotification(repeatId);
-        } catch (error) {
-          console.error(`Failed to cancel repeat notification ${repeatId}:`, error);
-        }
-      });
-
-      // Wait for all cancel operations to complete
-      await Promise.all(cancelPromises);
-
-      console.log(`Marked reminder ${reminderId} as skipped and cancelled repeat notifications`);
-    } catch (error) {
-      console.error('Failed to handle skip action:', error);
-    }
-  }
 
   private async getScheduledNotifications(): Promise<ScheduledNotification[]> {
     try {
@@ -731,4 +579,9 @@ class NotificationManager {
 }
 
 // Export singleton instance
-export default NotificationManager.getInstance();
+const notificationManagerInstance = NotificationManager.getInstance();
+export default notificationManagerInstance;
+
+// Export the scheduleNotification method for use in notificationHandlers
+export const scheduleNotification = (schedule: NotificationSchedule) =>
+  notificationManagerInstance.scheduleNotification(schedule);
