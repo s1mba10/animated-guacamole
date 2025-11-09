@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert, Image } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert, Image, AppState } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   format,
@@ -84,6 +84,29 @@ const Main: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Reload reminders when app comes back from background
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      if (nextAppState === 'active') {
+        // App has come to the foreground - reload reminders
+        try {
+          const storedReminders = await AsyncStorage.getItem('reminders');
+          if (storedReminders) {
+            const parsed: Reminder[] = JSON.parse(storedReminders);
+            setReminders(applyStatusRules(parsed));
+            console.log('Reloaded reminders on app state change to active');
+          }
+        } catch (error) {
+          console.error('Failed to reload reminders on app state change:', error);
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   // Save reminders and stats to storage when they change
   useEffect(() => {
     const saveData = async () => {
@@ -110,57 +133,65 @@ const Main: React.FC = () => {
 
   // Handle navigation focus and route params
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribe = navigation.addListener('focus', async () => {
       const params = route.params;
 
-      if (params?.forceRefresh) {
-        AsyncStorage.getItem('reminders').then(stored => {
-          if (stored) {
-            try {
-              setReminders(applyStatusRules(JSON.parse(stored)));
-            } catch {
-              setReminders([]);
+      // If we have new reminders or forceRefresh, always reload from storage
+      // This prevents duplicates since newReminders are already in AsyncStorage
+      if (params?.forceRefresh || params?.newReminders?.length || params?.newReminder) {
+        try {
+          const storedReminders = await AsyncStorage.getItem('reminders');
+          if (storedReminders) {
+            const parsed: Reminder[] = JSON.parse(storedReminders);
+            setReminders(applyStatusRules(parsed));
+            console.log('Reloaded reminders from storage after adding new ones');
+
+            // Update selected date if needed
+            if (params.newReminders?.length) {
+              const reminderDates = params.newReminders.map(r => r.date);
+              if (!reminderDates.includes(selectedDate) && reminderDates.length > 0) {
+                setSelectedDate(reminderDates[0]);
+              }
+            } else if (params.newReminder && params.newReminder.date !== selectedDate) {
+              setSelectedDate(params.newReminder.date);
             }
-          } else {
-            setReminders([]);
           }
+        } catch (error) {
+          console.error('Failed to reload reminders on focus:', error);
+        }
+
+        // Clear params
+        navigation.setParams({
+          forceRefresh: undefined,
+          newReminders: undefined,
+          newReminder: undefined,
         });
-        navigation.setParams({ forceRefresh: undefined });
+      } else {
+        // Otherwise, just reload from storage to get updates from notification actions
+        try {
+          const storedReminders = await AsyncStorage.getItem('reminders');
+          if (storedReminders) {
+            const parsed: Reminder[] = JSON.parse(storedReminders);
+            setReminders(applyStatusRules(parsed));
+            console.log('Reloaded reminders on app focus');
+          }
+        } catch (error) {
+          console.error('Failed to reload reminders on focus:', error);
+        }
       }
 
-      if (params) {
-        if (params.newReminders?.length) {
-          setReminders(prev =>
-            applyStatusRules([...prev, ...params.newReminders!]),
-          );
-          
-          const reminderDates = params.newReminders.map(r => r.date);
-          if (!reminderDates.includes(selectedDate) && reminderDates.length > 0) {
-            setSelectedDate(reminderDates[0]);
-          }
-
-          navigation.setParams({ newReminders: undefined });
-        } else if (params.newReminder) {
-          if (params.newReminder.date !== selectedDate) {
-            setSelectedDate(params.newReminder.date);
-          }
-
-          setReminders(prev => applyStatusRules([...prev, params.newReminder!]));
-          navigation.setParams({ newReminder: undefined });
-        }
-
-        if (params.updatedReminder) {
-          setReminders(prev =>
-            applyStatusRules(
-              prev.map(reminder =>
-                reminder.id === params.updatedReminder!.id
-                  ? params.updatedReminder!
-                  : reminder
-              )
+      // Handle updated reminder
+      if (params?.updatedReminder) {
+        setReminders(prev =>
+          applyStatusRules(
+            prev.map(reminder =>
+              reminder.id === params.updatedReminder!.id
+                ? params.updatedReminder!
+                : reminder
             )
-          );
-          navigation.setParams({ updatedReminder: undefined });
-        }
+          )
+        );
+        navigation.setParams({ updatedReminder: undefined });
       }
     });
 

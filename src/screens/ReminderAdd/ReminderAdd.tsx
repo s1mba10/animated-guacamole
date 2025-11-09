@@ -295,9 +295,11 @@ const ReminderAdd: React.FC = () => {
     }
     const courseId = Date.now();
     const newReminders: Reminder[] = [];
+    let counter = 0; // Add counter to ensure unique IDs
     dates.forEach((date) => {
       times.forEach((time) => {
-        const id = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+        const id = `${Date.now()}-${counter}-${Math.random().toString(36).substring(2, 9)}`;
+        counter++;
         newReminders.push({
           id,
           name,

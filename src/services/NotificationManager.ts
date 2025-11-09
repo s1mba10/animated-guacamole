@@ -405,9 +405,6 @@ class NotificationManager {
             title: `Напоминание: ${reminder.name}`,
             body: `Примите ${reminder.dosage}`,
             date: notificationDate,
-            data: {
-              snoozeCount: (reminder as any).snoozeCount || 0,
-            },
           });
           restoredCount++;
         }
