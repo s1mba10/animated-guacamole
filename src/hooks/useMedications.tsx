@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Medication } from '../types';
 
@@ -24,7 +24,7 @@ export const MedicationsProvider: React.FC<{
   const [medications, setMedications] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchMedications = async () => {
+  const fetchMedications = useCallback(async () => {
     setLoading(true);
     try {
       const stored = await AsyncStorage.getItem('medications');
@@ -36,16 +36,19 @@ export const MedicationsProvider: React.FC<{
           } else {
             setMedications([]);
           }
-        } catch {
+        } catch (error) {
+          console.error('Failed to parse medications:', error);
           setMedications([]);
         }
       } else {
         setMedications([]);
       }
+    } catch (error) {
+      console.error('Failed to fetch medications:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const saveMedications = async (items: Medication[]) => {
     setMedications(items);

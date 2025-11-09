@@ -108,6 +108,9 @@ const Main: React.FC = () => {
   }, []);
 
   // Save reminders and stats to storage when they change
+  // Use a ref to track pending save operations to avoid race conditions
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     const saveData = async () => {
       try {
@@ -126,9 +129,21 @@ const Main: React.FC = () => {
       }
     };
 
+    // Debounce saves to prevent race conditions
     if (reminders.length > 0) {
-      saveData();
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(() => {
+        saveData();
+      }, 300);
     }
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [reminders]);
 
   // Handle navigation focus and route params

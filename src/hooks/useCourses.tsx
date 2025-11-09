@@ -27,14 +27,18 @@ export const CoursesProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (Array.isArray(parsed)) {
             setCourses(parsed);
           } else {
+            console.error('Courses data is not an array, resetting to empty array');
             setCourses([]);
           }
-        } catch {
+        } catch (error) {
+          console.error('Failed to parse courses:', error);
           setCourses([]);
         }
       } else {
         setCourses([]);
       }
+    } catch (error) {
+      console.error('Failed to fetch courses:', error);
     } finally {
       setLoading(false);
     }
@@ -71,8 +75,13 @@ export const CoursesProvider: React.FC<{ children: React.ReactNode }> = ({ child
               'reminders',
               JSON.stringify(updatedReminders),
             );
+            console.log(`Successfully removed reminders for course ${id}`);
+          } else {
+            console.error('Reminders data is not an array');
           }
-        } catch {}
+        } catch (parseError) {
+          console.error('Failed to parse reminders when removing course:', parseError);
+        }
       }
     } catch (e) {
       console.error('Failed to remove reminders for course', id, e);

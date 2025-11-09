@@ -544,6 +544,7 @@ class NotificationManager {
           r.id === reminderId ? { ...r, status: 'taken' } : r
         );
         await AsyncStorage.setItem('reminders', JSON.stringify(updated));
+        console.log(`Updated reminder ${reminderId} status to 'taken' in storage`);
       }
 
       // Remove from scheduled notifications
@@ -551,15 +552,18 @@ class NotificationManager {
 
       // Cancel all repeat notifications for this reminder
       const repeatIntervals = [5, 10, 15];
-      for (const interval of repeatIntervals) {
+      const cancelPromises = repeatIntervals.map(async (interval) => {
         const repeatId = `${reminderId}_repeat_${interval}`;
         try {
           await notifee.cancelNotification(repeatId);
           await this.removeScheduledNotification(repeatId);
         } catch (error) {
-          // Ignore errors
+          console.error(`Failed to cancel repeat notification ${repeatId}:`, error);
         }
-      }
+      });
+
+      // Wait for all cancel operations to complete
+      await Promise.all(cancelPromises);
 
       console.log(`Marked reminder ${reminderId} as taken and cancelled repeat notifications`);
     } catch (error) {
@@ -648,6 +652,7 @@ class NotificationManager {
           r.id === reminderId ? { ...r, status: 'missed' } : r
         );
         await AsyncStorage.setItem('reminders', JSON.stringify(updated));
+        console.log(`Updated reminder ${reminderId} status to 'missed' in storage`);
       }
 
       // Remove from scheduled notifications
@@ -655,15 +660,18 @@ class NotificationManager {
 
       // Cancel all repeat notifications for this reminder
       const repeatIntervals = [5, 10, 15];
-      for (const interval of repeatIntervals) {
+      const cancelPromises = repeatIntervals.map(async (interval) => {
         const repeatId = `${reminderId}_repeat_${interval}`;
         try {
           await notifee.cancelNotification(repeatId);
           await this.removeScheduledNotification(repeatId);
         } catch (error) {
-          // Ignore errors
+          console.error(`Failed to cancel repeat notification ${repeatId}:`, error);
         }
-      }
+      });
+
+      // Wait for all cancel operations to complete
+      await Promise.all(cancelPromises);
 
       console.log(`Marked reminder ${reminderId} as skipped and cancelled repeat notifications`);
     } catch (error) {
