@@ -152,6 +152,7 @@ class NotificationManager {
               sound: 'default',
               vibrationPattern: [500, 1000, 500, 1000],
               smallIcon: 'ic_launcher',
+              largeIcon: require('../../assets/app_icon.png'),
               color: '#FF6B6B',
               tag: schedule.reminderId, // Group with original notification
             },
@@ -234,6 +235,7 @@ class NotificationManager {
             sound: 'default',
             vibrationPattern: [300, 500, 300, 500],
             smallIcon: 'ic_launcher',
+            largeIcon: require('../../assets/app_icon.png'),
             color: '#4A90E2',
             showTimestamp: true,
             timestamp: schedule.date.getTime(),
@@ -460,7 +462,7 @@ class NotificationManager {
       {
         title: 'Принял',
         pressAction: { id: 'take' },
-        icon: 'https://my-cdn.com/icons/check.png',
+        // Android will use the app icon by default
       },
     ];
 
@@ -469,14 +471,14 @@ class NotificationManager {
       actions.push({
         title: 'Отложить (15 мин)',
         pressAction: { id: 'snooze' },
-        icon: 'https://my-cdn.com/icons/snooze.png',
+        // Android will use the app icon by default
       });
     }
 
     actions.push({
       title: 'Пропустить',
       pressAction: { id: 'skip' },
-      icon: 'https://my-cdn.com/icons/close.png',
+      // Android will use the app icon by default
     });
 
     return actions;

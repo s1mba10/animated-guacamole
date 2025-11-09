@@ -53,6 +53,20 @@ const Main: React.FC = () => {
   const weekDates = getWeekDates(weekOffset);
   const rowRefs = useRef<Map<string, Swipeable>>(new Map());
 
+  // Clean up refs for deleted reminders to prevent memory leaks
+  useEffect(() => {
+    const currentIds = new Set(reminders.map(r => r.id));
+    const refsToDelete: string[] = [];
+
+    rowRefs.current.forEach((_, id) => {
+      if (!currentIds.has(id)) {
+        refsToDelete.push(id);
+      }
+    });
+
+    refsToDelete.forEach(id => rowRefs.current.delete(id));
+  }, [reminders]);
+
   const handleWeekSelect = (year: number, week: number) => {
     const target = startOfISOWeek(setISOWeek(setISOWeekYear(new Date(), year), week));
     const offset = differenceInCalendarISOWeeks(target, startOfISOWeek(new Date()));
@@ -61,21 +75,25 @@ const Main: React.FC = () => {
     setPickerVisible(false);
   };
 
-  // Load reminders from storage on component mount
-  useEffect(() => {
-    const loadReminders = async () => {
-      try {
-        const storedReminders = await AsyncStorage.getItem('reminders');
-        if (storedReminders) {
-          const parsed: Reminder[] = JSON.parse(storedReminders);
-          setReminders(applyStatusRules(parsed));
-        }
-      } catch (error) {
-        console.error('Failed to load reminders:', error);
+  // Centralized function to load reminders from storage
+  const loadRemindersFromStorage = async () => {
+    try {
+      const storedReminders = await AsyncStorage.getItem('reminders');
+      if (storedReminders) {
+        const parsed: Reminder[] = JSON.parse(storedReminders);
+        setReminders(applyStatusRules(parsed));
+        return true;
       }
-    };
+      return false;
+    } catch (error) {
+      console.error('Failed to load reminders:', error);
+      return false;
+    }
+  };
 
-    loadReminders();
+  // Load reminders on mount and set up periodic status updates
+  useEffect(() => {
+    loadRemindersFromStorage();
 
     const interval = setInterval(() => {
       setReminders(prev => applyStatusRules(prev));
@@ -88,17 +106,8 @@ const Main: React.FC = () => {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active') {
-        // App has come to the foreground - reload reminders
-        try {
-          const storedReminders = await AsyncStorage.getItem('reminders');
-          if (storedReminders) {
-            const parsed: Reminder[] = JSON.parse(storedReminders);
-            setReminders(applyStatusRules(parsed));
-            console.log('Reloaded reminders on app state change to active');
-          }
-        } catch (error) {
-          console.error('Failed to reload reminders on app state change:', error);
-        }
+        await loadRemindersFromStorage();
+        console.log('Reloaded reminders on app state change to active');
       }
     });
 
@@ -151,62 +160,31 @@ const Main: React.FC = () => {
     const unsubscribe = navigation.addListener('focus', async () => {
       const params = route.params;
 
-      // If we have new reminders or forceRefresh, always reload from storage
-      // This prevents duplicates since newReminders are already in AsyncStorage
-      if (params?.forceRefresh || params?.newReminders?.length || params?.newReminder) {
-        try {
-          const storedReminders = await AsyncStorage.getItem('reminders');
-          if (storedReminders) {
-            const parsed: Reminder[] = JSON.parse(storedReminders);
-            setReminders(applyStatusRules(parsed));
-            console.log('Reloaded reminders from storage after adding new ones');
+      // Always reload from storage to get latest updates (from notification actions, edits, etc.)
+      await loadRemindersFromStorage();
 
-            // Update selected date if needed
-            if (params.newReminders?.length) {
-              const reminderDates = params.newReminders.map(r => r.date);
-              if (!reminderDates.includes(selectedDate) && reminderDates.length > 0) {
-                setSelectedDate(reminderDates[0]);
-              }
-            } else if (params.newReminder && params.newReminder.date !== selectedDate) {
-              setSelectedDate(params.newReminder.date);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to reload reminders on focus:', error);
+      // Handle route params
+      if (params?.newReminders?.length) {
+        // Update selected date to first new reminder's date if needed
+        const reminderDates = params.newReminders.map(r => r.date);
+        if (!reminderDates.includes(selectedDate) && reminderDates.length > 0) {
+          setSelectedDate(reminderDates[0]);
         }
+      } else if (params?.newReminder && params.newReminder.date !== selectedDate) {
+        setSelectedDate(params.newReminder.date);
+      }
 
-        // Clear params
+      // Handle updated reminder by reloading (already done above)
+      // This ensures we get the latest state from storage
+
+      // Clear params
+      if (params?.forceRefresh || params?.newReminders || params?.newReminder || params?.updatedReminder) {
         navigation.setParams({
           forceRefresh: undefined,
           newReminders: undefined,
           newReminder: undefined,
+          updatedReminder: undefined,
         });
-      } else {
-        // Otherwise, just reload from storage to get updates from notification actions
-        try {
-          const storedReminders = await AsyncStorage.getItem('reminders');
-          if (storedReminders) {
-            const parsed: Reminder[] = JSON.parse(storedReminders);
-            setReminders(applyStatusRules(parsed));
-            console.log('Reloaded reminders on app focus');
-          }
-        } catch (error) {
-          console.error('Failed to reload reminders on focus:', error);
-        }
-      }
-
-      // Handle updated reminder
-      if (params?.updatedReminder) {
-        setReminders(prev =>
-          applyStatusRules(
-            prev.map(reminder =>
-              reminder.id === params.updatedReminder!.id
-                ? params.updatedReminder!
-                : reminder
-            )
-          )
-        );
-        navigation.setParams({ updatedReminder: undefined });
       }
     });
 

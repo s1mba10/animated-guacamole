@@ -284,8 +284,17 @@ const ReminderAdd: React.FC = () => {
       return;
     }
 
-    if (!medications.find((m) => m.name.toLowerCase() === name.toLowerCase())) {
-      await createMedication({ name, dosage });
+    // Safely check if medication exists and create if needed
+    try {
+      const medicationExists = Array.isArray(medications) &&
+        medications.find((m) => m.name.toLowerCase() === name.toLowerCase());
+
+      if (!medicationExists && typeof createMedication === 'function') {
+        await createMedication({ name, dosage });
+      }
+    } catch (error) {
+      console.error('Failed to check/create medication:', error);
+      // Continue anyway - medication creation is optional
     }
 
     const dates = generateSchedule();
@@ -683,20 +692,26 @@ const ReminderAdd: React.FC = () => {
                       <View style={{ width: 60 }} />
                     </View>
                     <ScrollView style={{ width: '100%' }}>
-                      {medications.map((m) => (
-                        <TouchableOpacity
-                          key={m.id}
-                          style={styles.medItem}
-                          onPress={() => {
-                            setName(m.name);
-                            setDosage(m.dosage);
-                            setSelectVisible(false);
-                          }}
-                        >
-                          <Text style={styles.medItemText}>{m.name}</Text>
-                          {!!m.dosage && <Text style={styles.medItemText}>{m.dosage}</Text>}
-                        </TouchableOpacity>
-                      ))}
+                      {Array.isArray(medications) && medications.length > 0 ? (
+                        medications.map((m) => (
+                          <TouchableOpacity
+                            key={m.id}
+                            style={styles.medItem}
+                            onPress={() => {
+                              setName(m.name);
+                              setDosage(m.dosage);
+                              setSelectVisible(false);
+                            }}
+                          >
+                            <Text style={styles.medItemText}>{m.name}</Text>
+                            {!!m.dosage && <Text style={styles.medItemText}>{m.dosage}</Text>}
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={styles.medItem}>
+                          <Text style={styles.medItemText}>Нет добавленных лекарств</Text>
+                        </View>
+                      )}
                     </ScrollView>
                   </View>
                 </TouchableWithoutFeedback>
