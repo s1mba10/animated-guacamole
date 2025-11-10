@@ -47,8 +47,6 @@ const ReminderAdd: React.FC = () => {
   const { saveCourse } = useCourses();
   const [selectVisible, setSelectVisible] = useState(false);
 
-  console.log('AddReminderScreen opened with date:', selectedDate);
-
   const [name, setName] = useState(course?.name || '');
   const [dosage, setDosage] = useState(course?.dosage || '');
   const [type, setType] = useState<MedicationType>(course?.type || 'tablet');
@@ -410,7 +408,11 @@ const ReminderAdd: React.FC = () => {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
         <View style={styles.header}>
           {/* Сделать чтобы было похоже на листание с правой станицы на левую, а не наоборот */}
           <TouchableOpacity onPress={() => navigation.goBack()}>
