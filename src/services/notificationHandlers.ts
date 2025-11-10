@@ -5,6 +5,9 @@
 import notifee from '@notifee/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NotificationSchedule } from './NotificationManager';
+import { REPEAT_NOTIFICATION_INTERVALS, MAX_SNOOZE_COUNT, SNOOZE_DURATION_MS } from '../constants/reminder';
+import { logNotification } from '../config/debug';
+import { formatTimeFromDate, formatISODate } from '../utils/dateHelpers';
 
 /**
  * Handle "Take" action - mark reminder as taken
@@ -26,8 +29,7 @@ export async function handleTakeAction(reminderId: string): Promise<void> {
     await removeScheduledNotification(reminderId);
 
     // Cancel all repeat notifications for this reminder
-    const repeatIntervals = [5, 10, 15];
-    const cancelPromises = repeatIntervals.map(async (interval) => {
+    const cancelPromises = REPEAT_NOTIFICATION_INTERVALS.map(async (interval) => {
       const repeatId = `${reminderId}_repeat_${interval}`;
       try {
         await notifee.cancelNotification(repeatId);
@@ -40,7 +42,7 @@ export async function handleTakeAction(reminderId: string): Promise<void> {
     // Wait for all cancel operations to complete
     await Promise.all(cancelPromises);
 
-    console.log(`Marked reminder ${reminderId} as taken and cancelled repeat notifications`);
+    logNotification(`Marked reminder ${reminderId} as taken and cancelled repeat notifications`);
   } catch (error) {
     console.error('Failed to handle take action:', error);
   }
@@ -70,17 +72,17 @@ export async function handleSnoozeAction(notification: any): Promise<void> {
 
     const reminder = reminders[reminderIndex];
 
-    // Check if already snoozed 3 times
+    // Check if already snoozed MAX_SNOOZE_COUNT times
     const currentSnoozeCount = reminder.snoozeCount || 0;
-    if (currentSnoozeCount >= 3) {
-      console.log(`Reminder ${reminderId} has reached maximum snooze count`);
+    if (currentSnoozeCount >= MAX_SNOOZE_COUNT) {
+      logNotification(`Reminder ${reminderId} has reached maximum snooze count`);
       return;
     }
 
-    // Calculate new time (15 minutes from now)
-    const snoozeTime = new Date(Date.now() + 15 * 60 * 1000);
-    const newTime = `${snoozeTime.getHours().toString().padStart(2, '0')}:${snoozeTime.getMinutes().toString().padStart(2, '0')}`;
-    const newDate = `${snoozeTime.getFullYear()}-${(snoozeTime.getMonth() + 1).toString().padStart(2, '0')}-${snoozeTime.getDate().toString().padStart(2, '0')}`;
+    // Calculate new time using SNOOZE_DURATION_MS
+    const snoozeTime = new Date(Date.now() + SNOOZE_DURATION_MS);
+    const newTime = formatTimeFromDate(snoozeTime);
+    const newDate = formatISODate(snoozeTime);
 
     // Store original time/date on first snooze
     if (currentSnoozeCount === 0) {
@@ -116,7 +118,7 @@ export async function handleSnoozeAction(notification: any): Promise<void> {
       },
     });
 
-    console.log(`Snoozed reminder ${reminderId} to ${newTime} (${reminder.snoozeCount}/3)`);
+    logNotification(`Snoozed reminder ${reminderId} to ${newTime} (${reminder.snoozeCount}/${MAX_SNOOZE_COUNT})`);
   } catch (error) {
     console.error('Failed to handle snooze action:', error);
   }
@@ -142,8 +144,7 @@ export async function handleSkipAction(reminderId: string): Promise<void> {
     await removeScheduledNotification(reminderId);
 
     // Cancel all repeat notifications for this reminder
-    const repeatIntervals = [5, 10, 15];
-    const cancelPromises = repeatIntervals.map(async (interval) => {
+    const cancelPromises = REPEAT_NOTIFICATION_INTERVALS.map(async (interval) => {
       const repeatId = `${reminderId}_repeat_${interval}`;
       try {
         await notifee.cancelNotification(repeatId);
@@ -156,7 +157,7 @@ export async function handleSkipAction(reminderId: string): Promise<void> {
     // Wait for all cancel operations to complete
     await Promise.all(cancelPromises);
 
-    console.log(`Marked reminder ${reminderId} as skipped and cancelled repeat notifications`);
+    logNotification(`Marked reminder ${reminderId} as skipped and cancelled repeat notifications`);
   } catch (error) {
     console.error('Failed to handle skip action:', error);
   }
@@ -184,8 +185,7 @@ async function cancelNotificationWithRepeats(reminderId: string): Promise<void> 
     await removeScheduledNotification(reminderId);
 
     // Cancel all repeat notifications
-    const repeatIntervals = [5, 10, 15];
-    for (const interval of repeatIntervals) {
+    for (const interval of REPEAT_NOTIFICATION_INTERVALS) {
       const repeatId = `${reminderId}_repeat_${interval}`;
       try {
         await notifee.cancelNotification(repeatId);
@@ -195,7 +195,7 @@ async function cancelNotificationWithRepeats(reminderId: string): Promise<void> 
       }
     }
 
-    console.log(`Cancelled notification ${reminderId} and all repeat notifications`);
+    logNotification(`Cancelled notification ${reminderId} and all repeat notifications`);
   } catch (error) {
     console.error('Failed to cancel notification with repeats:', error);
   }

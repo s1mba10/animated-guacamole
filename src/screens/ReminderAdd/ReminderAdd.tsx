@@ -18,7 +18,6 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { format } from 'date-fns';
-import { ru } from 'date-fns/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useReminders, useMedications, useCourses } from '../../hooks';
 import NotificationManager from '../../services/NotificationManager';
@@ -26,9 +25,7 @@ import NotificationManager from '../../services/NotificationManager';
 import { styles } from './styles';
 import { AddReminderScreenNavigationProp, AddReminderScreenRouteProp, typeIcons } from './types';
 import { Reminder, MedicationType } from '../../types';
-
-const formatDateRu = (iso: string) => format(new Date(iso), 'd MMMM', { locale: ru });
-const formatDisplayDate = (iso: string) => format(new Date(iso), 'dd-MM-yyyy');
+import { formatDateRu, formatDisplayDate, formatTimeFromDate } from '../../utils/dateHelpers';
 
 const weekDaysOrder = [
   { label: 'Пн', value: 1 },
@@ -170,10 +167,7 @@ const ReminderAdd: React.FC = () => {
   };
 
   const confirmTime = () => {
-    const hours = selectedTime.getHours().toString().padStart(2, '0');
-    const minutes = selectedTime.getMinutes().toString().padStart(2, '0');
-    const timeString = `${hours}:${minutes}`;
-
+    const timeString = formatTimeFromDate(selectedTime);
     confirmTimeSelection(timeString);
   };
 
@@ -394,8 +388,9 @@ const ReminderAdd: React.FC = () => {
 
     const key = mainKey || navigation.getState().routes[0]?.key;
     navigation.goBack();
-    // @ts-ignore
-    navigation.navigate({
+    // Navigate back to Main screen with updated reminders
+    // Using type assertion as the navigation signature doesn't match the runtime behavior
+    (navigation.navigate as any)({
       name: 'Main',
       key,
       params: {

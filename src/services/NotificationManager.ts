@@ -15,6 +15,8 @@ import {
   handleSnoozeAction,
   handleSkipAction,
 } from './notificationHandlers';
+import { logNotification } from '../config/debug';
+import { REPEAT_NOTIFICATION_INTERVALS, MAX_SNOOZE_COUNT } from '../constants/reminder';
 
 export interface NotificationSchedule {
   reminderId: string;
@@ -112,11 +114,10 @@ class NotificationManager {
     schedule: NotificationSchedule,
     originalTime: Date
   ): Promise<void> {
-    // Schedule 3 follow-up notifications at 5, 10, and 15 minutes after the original
-    const repeatIntervals = [5, 10, 15];
+    // Schedule follow-up notifications at configured intervals
     const snoozeCount = (schedule.data?.snoozeCount as number) || 0;
 
-    for (const intervalMinutes of repeatIntervals) {
+    for (const intervalMinutes of REPEAT_NOTIFICATION_INTERVALS) {
       const repeatTime = new Date(originalTime.getTime() + intervalMinutes * 60 * 1000);
 
       // Only schedule if it's still in the future
@@ -178,7 +179,7 @@ class NotificationManager {
           scheduledTime: repeatTime.getTime(),
         });
 
-        console.log(`Scheduled repeat notification ${repeatId} for ${intervalMinutes} minutes after original`);
+        logNotification(`Scheduled repeat notification ${repeatId} for ${intervalMinutes} minutes after original`);
       } catch (error) {
         console.error(`Failed to schedule repeat notification at ${intervalMinutes} minutes:`, error);
       }
@@ -271,7 +272,7 @@ class NotificationManager {
       // Schedule repeat notifications to ensure the user doesn't miss it
       await this.scheduleRepeatNotifications(schedule, schedule.date);
 
-      console.log(`Scheduled notification ${notificationId} for reminder ${schedule.reminderId}`);
+      logNotification(`Scheduled notification ${notificationId} for reminder ${schedule.reminderId} at ${schedule.date.toISOString()}`);
       return notificationId;
     } catch (error) {
       console.error('Failed to schedule notification:', error);
@@ -295,17 +296,16 @@ class NotificationManager {
         // Remove from storage
         await this.removeScheduledNotification(reminderId);
 
-        console.log(`Cancelled notification for reminder ${reminderId}`);
+        logNotification(`Cancelled notification for reminder ${reminderId}`);
       }
 
       // Also cancel all repeat notifications for this reminder
-      const repeatIntervals = [5, 10, 15];
-      for (const interval of repeatIntervals) {
+      for (const interval of REPEAT_NOTIFICATION_INTERVALS) {
         const repeatId = `${reminderId}_repeat_${interval}`;
         try {
           await notifee.cancelNotification(repeatId);
           await this.removeScheduledNotification(repeatId);
-          console.log(`Cancelled repeat notification ${repeatId}`);
+          logNotification(`Cancelled repeat notification ${repeatId}`);
         } catch (error) {
           // Ignore errors for repeat notifications that might not exist
         }
@@ -337,7 +337,7 @@ class NotificationManager {
         );
         await this.saveAllScheduledNotifications(remaining);
 
-        console.log(`Cancelled ${notificationIds.length} notifications`);
+        logNotification(`Cancelled ${notificationIds.length} notifications`);
       }
     } catch (error) {
       console.error('Failed to cancel notifications:', error);
@@ -351,7 +351,7 @@ class NotificationManager {
     try {
       await notifee.cancelAllNotifications();
       await AsyncStorage.removeItem(STORAGE_KEY);
-      console.log('Cancelled all notifications');
+      logNotification('Cancelled all notifications');
     } catch (error) {
       console.error('Failed to cancel all notifications:', error);
     }
@@ -372,7 +372,7 @@ class NotificationManager {
     }>
   ): Promise<void> {
     try {
-      console.log('Restoring notifications...');
+      logNotification('Restoring notifications...');
 
       // Get currently scheduled notifications from notifee
       const triggerNotifications = await notifee.getTriggerNotifications();
@@ -417,7 +417,7 @@ class NotificationManager {
         }
       }
 
-      console.log(`Restored ${restoredCount} notifications`);
+      logNotification(`Restored ${restoredCount} notifications`);
     } catch (error) {
       console.error('Failed to restore notifications:', error);
     }
@@ -436,7 +436,7 @@ class NotificationManager {
 
       if (future.length < scheduled.length) {
         await this.saveAllScheduledNotifications(future);
-        console.log(`Cleaned up ${scheduled.length - future.length} old notifications`);
+        logNotification(`Cleaned up ${scheduled.length - future.length} old notifications`);
       }
     } catch (error) {
       console.error('Failed to cleanup notifications:', error);
@@ -466,8 +466,8 @@ class NotificationManager {
       },
     ];
 
-    // Only show snooze button if not snoozed 3 times already
-    if (snoozeCount < 3) {
+    // Only show snooze button if not snoozed MAX_SNOOZE_COUNT times already
+    if (snoozeCount < MAX_SNOOZE_COUNT) {
       actions.push({
         title: 'Отложить (15 мин)',
         pressAction: { id: 'snooze' },
@@ -502,7 +502,7 @@ class NotificationManager {
           return;
         }
 
-        console.log(`Foreground event: action=${pressAction.id}, reminderId=${reminderId}`);
+        logNotification(`Foreground event: action=${pressAction.id}, reminderId=${reminderId}`);
 
         // Use standalone handlers for consistency
         switch (pressAction.id) {

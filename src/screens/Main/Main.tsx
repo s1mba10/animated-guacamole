@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert, Image, AppState } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
@@ -26,19 +26,12 @@ import { getWeekDates } from './utils';
 import { statusColors, typeIcons } from './constants';
 import { useCountdown, useCourses } from '../../hooks';
 import NotificationManager from '../../services/NotificationManager';
-
-const applyStatusRules = (items: Reminder[]): Reminder[] => {
-  const now = Date.now();
-  return items.map((r) => {
-    if (r.status === 'taken' || r.status === 'missed') {
-      return r;
-    }
-    const due = new Date(`${r.date}T${r.time}`);
-    return now >= due.getTime() + 15 * 60 * 1000
-      ? { ...r, status: 'missed' }
-      : { ...r, status: 'pending' };
-  });
-};
+import { applyStatusRules } from '../../utils/reminderStatus';
+import {
+  REMINDER_TIMEOUT_MS,
+  STATUS_UPDATE_INTERVAL_MS,
+  SAVE_DEBOUNCE_DELAY_MS
+} from '../../constants/reminder';
 
 const Main: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -76,7 +69,7 @@ const Main: React.FC = () => {
   };
 
   // Centralized function to load reminders from storage
-  const loadRemindersFromStorage = async () => {
+  const loadRemindersFromStorage = useCallback(async () => {
     try {
       const storedReminders = await AsyncStorage.getItem('reminders');
       if (storedReminders) {
@@ -87,9 +80,10 @@ const Main: React.FC = () => {
       return false;
     } catch (error) {
       console.error('Failed to load reminders:', error);
+      Alert.alert('Ошибка', 'Не удалось загрузить напоминания. Попробуйте перезапустить приложение.');
       return false;
     }
-  };
+  }, []);
 
   // Load reminders on mount and set up periodic status updates
   useEffect(() => {
@@ -97,10 +91,10 @@ const Main: React.FC = () => {
 
     const interval = setInterval(() => {
       setReminders(prev => applyStatusRules(prev));
-    }, 60 * 1000);
+    }, STATUS_UPDATE_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [loadRemindersFromStorage]);
 
   // Reload reminders when app comes back from background
   useEffect(() => {
@@ -114,7 +108,7 @@ const Main: React.FC = () => {
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [loadRemindersFromStorage]);
 
   // Save reminders and stats to storage when they change
   // Use a ref to track pending save operations to avoid race conditions
@@ -135,6 +129,7 @@ const Main: React.FC = () => {
         );
       } catch (error) {
         console.error('Failed to save reminders:', error);
+        Alert.alert('Ошибка', 'Не удалось сохранить изменения');
       }
     };
 
@@ -145,12 +140,15 @@ const Main: React.FC = () => {
       }
       saveTimeoutRef.current = setTimeout(() => {
         saveData();
-      }, 300);
+      }, SAVE_DEBOUNCE_DELAY_MS);
     }
 
+    // Cleanup: flush pending saves on unmount to avoid data loss
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        // Flush the save immediately on unmount
+        saveData();
       }
     };
   }, [reminders]);
@@ -273,13 +271,17 @@ const Main: React.FC = () => {
     </RectButton>
   );
 
-  const ReminderCard: React.FC<{ item: Reminder }> = ({ item }) => {
+  const ReminderCard: React.FC<{ item: Reminder }> = React.memo(({ item }) => {
     const due = new Date(`${item.date}T${item.time}`);
     const now = Date.now();
     const active =
-      item.status === 'pending' && now >= due.getTime() && now < due.getTime() + 15 * 60 * 1000;
+      item.status === 'pending' && now >= due.getTime() && now < due.getTime() + REMINDER_TIMEOUT_MS;
     const { minutes, seconds, progress } = useCountdown(due, active, () => markAsMissed(item.id));
     const progressColor = progress > 0.5 ? '#4CAF50' : progress > 0.2 ? '#FFEB3B' : '#F44336';
+
+    // Accessibility labels
+    const statusLabel = item.status === 'taken' ? 'принято' : item.status === 'missed' ? 'пропущено' : 'ожидается';
+    const timeLabel = active ? `Осталось ${minutes} минут ${seconds} секунд` : '';
 
     return (
       <Swipeable
@@ -298,6 +300,8 @@ const Main: React.FC = () => {
             styles.reminderItem,
             { borderLeftColor: statusColors[item.status] },
           ]}
+          accessible={true}
+          accessibilityLabel={`Напоминание: ${item.name}, ${item.dosage}, время ${item.time}, статус ${statusLabel}${timeLabel ? `, ${timeLabel}` : ''}`}
         >
           <TouchableWithoutFeedback
             onPress={() =>
@@ -306,6 +310,9 @@ const Main: React.FC = () => {
                 mainKey: route.key,
               })
             }
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel={`Редактировать напоминание ${item.name}`}
           >
             <View style={styles.reminderContent}>
               <Icon
@@ -320,16 +327,28 @@ const Main: React.FC = () => {
                   {item.dosage} @ {item.time}
                 </Text>
                 {active && (
-                  <View style={styles.countdownContainer}>
-                    <View style={styles.progressBarBackground}>
+                  <View
+                    style={styles.countdownContainer}
+                    accessible={true}
+                    accessibilityLabel={`Осталось ${minutes} минут ${seconds} секунд`}
+                    accessibilityRole="timer"
+                  >
+                    <View
+                      style={styles.progressBarBackground}
+                      accessible={false}
+                    >
                       <View
                         style={[
                           styles.progressBarFill,
                           { width: `${progress * 100}%`, backgroundColor: progressColor },
                         ]}
+                        accessible={false}
                       />
                     </View>
-                    <Text style={[styles.countdownText, { color: progressColor }]}>
+                    <Text
+                      style={[styles.countdownText, { color: progressColor }]}
+                      accessible={false}
+                    >
                       {minutes}:{seconds}
                     </Text>
                   </View>
@@ -348,6 +367,9 @@ const Main: React.FC = () => {
               styles.takeButton,
               { backgroundColor: statusColors[item.status] },
             ]}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel={item.status === 'taken' ? 'Отметить как пропущенное' : 'Отметить как принятое'}
           >
             <Text style={styles.buttonText}>
               {item.status === 'taken' ? 'Пропустить' : 'Принять'}
@@ -356,7 +378,15 @@ const Main: React.FC = () => {
         </View>
       </Swipeable>
     );
-  };
+  }, (prevProps, nextProps) => {
+    // Custom comparison for optimal performance
+    return (
+      prevProps.item.id === nextProps.item.id &&
+      prevProps.item.status === nextProps.item.status &&
+      prevProps.item.time === nextProps.item.time &&
+      prevProps.item.name === nextProps.item.name
+    );
+  });
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

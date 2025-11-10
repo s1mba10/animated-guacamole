@@ -1,14 +1,6 @@
 export type ReminderStatus = 'taken' | 'pending' | 'missed';
 
-export const MedicationType = {
-  Tablet: 'tablet',
-  Capsule: 'capsule',
-  Liquid: 'liquid',
-  Injection: 'injection',
-  Other: 'other',
-} as const;
-
-export type MedicationType = (typeof MedicationType)[keyof typeof MedicationType];
+export type MedicationType = 'tablet' | 'capsule' | 'liquid' | 'injection' | 'other';
 export type Reminder = {
   id: string;
   name: string;
