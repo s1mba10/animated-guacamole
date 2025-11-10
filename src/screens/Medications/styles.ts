@@ -169,4 +169,32 @@ export const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
   },
+  editButton: {
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 100,
+    borderRadius: 5,
+    marginBottom: 8,
+  },
+  editText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  deleteButton: {
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 100,
+    borderRadius: 5,
+    marginBottom: 8,
+  },
+  deleteText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
 });

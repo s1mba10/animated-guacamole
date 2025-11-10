@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { Swipeable, RectButton } from 'react-native-gesture-handler';
 import { useMedications } from '../../hooks/useMedications';
 import { useCourses, useReminders } from '../../hooks';
 import { MedicationCourse } from '../../types';
@@ -38,11 +39,37 @@ const Medications: React.FC = () => {
   const [form, setForm] = useState<MedicationFormData>({ name: '', dosage: '' });
   const [modalVisible, setModalVisible] = useState(false);
   const fabPressAnim = useRef(new Animated.Value(1)).current;
+  const medicationRowRefs = useRef<Map<number, Swipeable>>(new Map());
+
+  // Clean up refs for deleted medications to prevent memory leaks
+  useEffect(() => {
+    const currentIds = new Set(medications.map(m => m.id));
+    const refsToDelete: number[] = [];
+
+    medicationRowRefs.current.forEach((_, id) => {
+      if (!currentIds.has(id)) {
+        refsToDelete.push(id);
+      }
+    });
+
+    refsToDelete.forEach(id => medicationRowRefs.current.delete(id));
+  }, [medications]);
 
   const formatDate = (iso: string) =>
     format(new Date(iso), 'd MMMM', { locale: ru });
 
+  // Close all other swipeable rows when one is opened
+  const closeOtherRows = (currentId: number) => {
+    medicationRowRefs.current.forEach((ref, id) => {
+      if (id !== currentId) {
+        ref?.close();
+      }
+    });
+  };
+
   const startEdit = (id: number) => {
+    // Close the swipeable row when editing
+    medicationRowRefs.current.get(id)?.close();
     const med = medications.find(m => m.id === id);
     if (med) {
       setForm({ id: med.id, name: med.name, dosage: med.dosage });
@@ -136,6 +163,22 @@ const Medications: React.FC = () => {
       params: { forceRefresh: Date.now() },
     });
   };
+
+  // Render edit action for swipeable (left swipe)
+  const renderLeftActions = (id: number) => (
+    <RectButton style={styles.editButton} onPress={() => startEdit(id)}>
+      <Icon name="pencil" size={24} color="white" />
+      <Text style={styles.editText}>Редактировать</Text>
+    </RectButton>
+  );
+
+  // Render delete action for swipeable (right swipe)
+  const renderRightActions = (id: number) => (
+    <RectButton style={styles.deleteButton} onPress={() => removeMedication(id)}>
+      <Icon name="delete" size={24} color="white" />
+      <Text style={styles.deleteText}>Удалить</Text>
+    </RectButton>
+  );
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
@@ -282,34 +325,35 @@ const Medications: React.FC = () => {
 
         <Text style={styles.sectionTitle}>Список лекарств</Text>
         {medications.map(m => (
-          <View key={m.id} style={styles.listItem}>
-            <View style={styles.listInfo}>
-              <Text
-                style={styles.listText}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {m.name}
-              </Text>
-              {!!m.dosage && (
-                <Text style={styles.listText}>{m.dosage}</Text>
-              )}
+          <Swipeable
+            key={m.id}
+            ref={(ref) => {
+              if (ref) {
+                medicationRowRefs.current.set(m.id, ref);
+              }
+            }}
+            renderLeftActions={() => renderLeftActions(m.id)}
+            renderRightActions={() => renderRightActions(m.id)}
+            onSwipeableOpen={() => closeOtherRows(m.id)}
+            friction={2}
+            overshootLeft={false}
+            overshootRight={false}
+          >
+            <View style={styles.listItem}>
+              <View style={styles.listInfo}>
+                <Text
+                  style={styles.listText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {m.name}
+                </Text>
+                {!!m.dosage && (
+                  <Text style={styles.listText}>{m.dosage}</Text>
+                )}
+              </View>
             </View>
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => startEdit(m.id)}
-              >
-                <Icon name="pencil" size={20} color="#007AFF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => removeMedication(m.id)}
-              >
-                <Icon name="delete" size={20} color="#FF3B30" />
-              </TouchableOpacity>
-            </View>
-          </View>
+          </Swipeable>
         ))}
 
         <TouchableOpacity style={styles.addButton} onPress={startAdd}>
