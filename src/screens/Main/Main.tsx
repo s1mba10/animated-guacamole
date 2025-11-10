@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert, Image, AppState } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback, StatusBar, Alert, Image, AppState, Animated } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   format,
@@ -45,6 +45,7 @@ const Main: React.FC = () => {
 
   const weekDates = getWeekDates(weekOffset);
   const rowRefs = useRef<Map<string, Swipeable>>(new Map());
+  const fabPressAnim = useRef(new Animated.Value(1)).current;
 
   // Clean up refs for deleted reminders to prevent memory leaks
   useEffect(() => {
@@ -467,17 +468,42 @@ const Main: React.FC = () => {
         />
 
         {/* Add Reminder FAB */}
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => {
-            navigation.navigate('ReminderAdd', {
-              selectedDate,
-              mainKey: route.key,
-            });
-          }}
+        <Animated.View
+          style={[
+            styles.fab,
+            {
+              transform: [{ scale: fabPressAnim }],
+            },
+          ]}
         >
-          <Icon name="plus" size={30} color="white" />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+            onPressIn={() => {
+              Animated.spring(fabPressAnim, {
+                toValue: 0.85,
+                useNativeDriver: true,
+                speed: 50,
+                bounciness: 0,
+              }).start();
+            }}
+            onPressOut={() => {
+              Animated.spring(fabPressAnim, {
+                toValue: 1,
+                useNativeDriver: true,
+                speed: 20,
+                bounciness: 8,
+              }).start();
+            }}
+            onPress={() => {
+              navigation.navigate('ReminderAdd', {
+                selectedDate,
+                mainKey: route.key,
+              });
+            }}
+          >
+            <Icon name="plus" size={30} color="white" />
+          </TouchableOpacity>
+        </Animated.View>
         <WeekPickerModal
           visible={pickerVisible}
           onClose={() => setPickerVisible(false)}
